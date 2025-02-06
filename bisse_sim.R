@@ -10,7 +10,8 @@ library(purrr)
 # ==============================================================================
 #                        DEFINE BiSSE SIMULATION PARAMETERS
 # ==============================================================================
-PARAM_FILE_PATH <- "params.csv" # Path to parameters CSV file, formatted:
+N <- 100                            # Number of simulations per parameter set
+PARAM_FILE_PATH <- "params.csv"     # Path to parameters CSV file, formatted:
 #
 #    lambda0  lambda1   mu0   mu1   q01   q10
 # 1      0.1      0.1  0.03  0.03  0.01  0.01
@@ -131,7 +132,7 @@ bias <- results_df %>%
             across(starts_with("q"), ~ mean(.x) - parameters[5]))
 
 # Calculate the standard deviation of estimates
-bias <- results_df %>%
+precision <- results_df %>%
   summarise(across(starts_with("lambda"), sd),
             across(starts_with("mu"), sd),
             across(starts_with("q"), sd))
