@@ -7,7 +7,7 @@ library(dplyr)
 library(ggplot2)
 library(purrr)
 
-set.seed(42)
+set.seed(2)
 
 # ==============================================================================
 #                        DEFINE BiSSE SIMULATION PARAMETERS
@@ -42,14 +42,14 @@ simulate_bisse <- function(parameters, i) {
   # Repeat failed simulations
   repeat {
     # Run BiSSE simulation, obtain tree end states
-    phy <- tree.bisse(parameters, max.t = 50, x0 = 0)
+    phy <- tree.bisse(parameters, max.t = 10, x0 = 0)
     end_states <- phy$tip.state
     
     #print(end_states)
     # Perform failed simulation checks
     
     # Check if tree too small
-    if (length(end_states) <= 2) {
+    if (length(end_states) < 2) {
       message(sprintf("  Retrying simulation %d: tree has fewer than 2 tips.", i))
       next
     }
