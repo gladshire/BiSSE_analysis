@@ -16,17 +16,15 @@ error_rate <- 0.05
 # ==============================================================================
 #                        DEFINE BiSSE SIMULATION PARAMETERS
 # ==============================================================================
-N <- 100                            # Number of simulations per parameter set
+N <- 10                             # Number of simulations per parameter set
 PARAM_FILE_PATH <- "params.csv"     # Path to parameters CSV file, formatted:
 #
 #    lambda0  lambda1   mu0   mu1   q01   q10
 # 1      0.1      0.1  0.03  0.03  0.01  0.01
 # 2      ...
 # 3      ...
-# ...
-
+# 
 # Where:
-
 #   lambda0 is birth/speciation rate for trait 0,
 #   lambda1 is birth/speciation rate for trait 1,
 #   mu0 is death/extinction rate for trait 0,
@@ -77,17 +75,6 @@ simulate_bisse <- function(parameters, error_rate, i) {
     }
     log_lik_true <- logLik(fit_true)
     
-    # fit <- tryCatch({
-    #   find.mle(lik, pt, method = "subplex")
-    # }, error = function(e) {
-    #   return(NULL)
-    # })
-    # 
-    # if (is.null(fit)) {
-    #   warning(sprintf("  Retrying simulation %d: MLE failure.", i))
-    #   next
-    # }
-    
     # Apply random error to tip states
     repeat {
       end_states_error <- end_states
@@ -116,6 +103,9 @@ simulate_bisse <- function(parameters, error_rate, i) {
                     i, N, length(phy$tip.state),
                     length(phy$tip.state[phy$tip.state == 0]),
                     length(phy$tip.state[phy$tip.state == 1])))
+    
+    h <- history.from.sim.discrete(phy, 0:1)
+    plot(h, phy)
   
     # Store results as a named list
     return(list(tree = phy,
@@ -146,9 +136,8 @@ all_results <- pmap(param_set, function(lambda0, lambda1, mu0, mu1, q01, q10) {
     results_df <- do.call(rbind.data.frame, lapply(results, function(res) {
       c(res$log_lik_true, res$log_lik_error, res$parameters,
         res$estimated_params_true, res$estimated_params_error,
-        res$num_errors)
+        res$num_errors, length(res$tree$tip.state))
     }))
-
 
     # Rename columns in results dataframe list
     colnames(results_df) <- c("Log-likelihood (true)", "Log-likelihood (error)",
@@ -161,32 +150,54 @@ all_results <- pmap(param_set, function(lambda0, lambda1, mu0, mu1, q01, q10) {
                               "lambda0 (est, error)", "lambda1 (est, error)",
                               "mu0 (est, error)", "mu1 (est, error)",
                               "q01 (est, error)", "q10 (est, error)",
-                              "Num errors")
+                              "Num errors", "Num Tips")
     
     return(results_df)
   })
 
-# NOT WORKING YET. PERFORM
-
 # Convert dataframe list into singular dataframe
-# all_results_df <- bind_rows(all_results)
+all_results_df <- bind_rows(all_results)
 
 # ==============================================================================
 #               ANALYZE BiSSE SIMULATION, ESTIMATION RESULTS
 # ==============================================================================
 
 
-# # Calculate the mean of estimated parameters
-# mean_estimates <- lapply(all_results, function(res) {
-#   c(mean(res["lambda0 (est)"]), mean(res["lambda1 (est)"]),
-#     mean(res["mu0 (est)"]), mean(res["mu1 (est)"]),
-#     mean(res["q01 (est)"]), mean(res["q10 (est)"]))
-# })
-#   
-#  all_results %>%
-#  summarise(across(starts_with("lambda"), mean),
-#            across(starts_with("mu"), mean),
-#            across(starts_with("q"), mean))
+# Group estimation results of simulations by parameter sets
+df_grouped <- all_results_df %>% group_by(`lambda0 (true)`, `lambda1 (true)`,
+                                          `mu0 (true)`, `mu1 (true)`,
+                                          `q01 (true)`, `q10 (true)`)
+
+# Get mean parameter estimates before and after error introduced
+mean_estimates <- df_grouped %>% summarise(mean_lambda0_est = mean(`lambda0 (est, true)`),
+                                           mean_lambda1_est = mean(`lambda1 (est, true)`),
+                                           mean_mu0_est = mean(`mu0 (est, true)`),
+                                           mean_mu1_est = mean(`mu1 (est, true)`),
+                                           mean_q01_est = mean(`q01 (est, true)`),
+                                           mean_q10_est = mean(`q10 (est, true)`),
+                                           mean_lambda0_err = mean(`lambda0 (est, error)`),
+                                           mean_lambda1_err = mean(`lambda1 (est, error)`),
+                                           mean_mu0_err = mean(`mu0 (est, error)`),
+                                           mean_mu1_err = mean(`mu1 (est, error)`),
+                                           mean_q01_err = mean(`q01 (est, error)`),
+                                           mean_q10_err = mean(`q10 (est, error)`),
+                                           mean_num_tips = mean(`Num Tips`))
+
+# Get average bias of parameter estimates before, after error
+bias_estimates <- df_grouped %>% summarise(bias_lambda0_est = mean(`lambda0 (est, true)` - `lambda0 (true)`),
+                                           bias_lambda1_est = mean(`lambda1 (est, true)` - `lambda1 (true)`),
+                                           bias_mu0_est = mean(`mu0 (est, true)` - `mu0 (true)`),
+                                           bias_mu1_est = mean(`mu1 (est, true)` - `mu1 (true)`),
+                                           bias_q01_est = mean(`q01 (est, true)` - `q01 (true)`),
+                                           bias_q10_est = mean(`q10 (est, true)` - `q10 (true)`),
+                                           bias_lambda0_err = mean(`lambda0 (est, error)` - `lambda0 (true)`),
+                                           bias_lambda1_err = mean(`lambda1 (est, error)` - `lambda1 (true)`),
+                                           bias_mu0_err = mean(`mu0 (est, error)` - `mu0 (true)`),
+                                           bias_mu1_err = mean(`mu1 (est, error)` - `mu1 (true)`),
+                                           bias_q01_err = mean(`q01 (est, error)` - `q01 (true)`),
+                                           bias_q10_err = mean(`q10 (est, error)` - `q10 (true)`))
+
+
 
 # Calculate bias as the difference between true and estimated parameters
 # bias <- all_results_df %>%
