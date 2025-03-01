@@ -6,18 +6,23 @@ library(diversitree)
 library(dplyr)
 library(ggplot2)
 library(purrr)
+library(R.utils)
+
+args <- commandArgs(trailingOnly=TRUE)
 
 # Set random seed for simulation
-set.seed(2)
+#set.seed(1)
 
 # Set error rate to apply to tips
-error_rate <- 0.05
+#error_rate <- 0.05
+error_rate_str <- args[1]
+error_rate <- as.double(error_rate_str)
 
 # ==============================================================================
 #                        DEFINE BiSSE SIMULATION PARAMETERS
 # ==============================================================================
-N <- 10                             # Number of simulations per parameter set
-PARAM_FILE_PATH <- "params.csv"     # Path to parameters CSV file, formatted:
+N <- 100                           # Number of simulations per parameter set
+PARAM_FILE_PATH <- "params.csv"    # Path to parameters CSV file, formatted:
 #
 #    lambda0  lambda1   mu0   mu1   q01   q10
 # 1      0.1      0.1  0.03  0.03  0.01  0.01
@@ -47,7 +52,7 @@ simulate_bisse <- function(parameters, error_rate, i) {
     end_states <- phy$tip.state
         
     # Check for single-tip tree
-    if (length(end_states) < 2) {
+    if (length(end_states) < 10) {
       message(sprintf("  Retrying simulation %d: tree has fewer than 2 tips.", i))
       next
     }
@@ -64,45 +69,68 @@ simulate_bisse <- function(parameters, error_rate, i) {
       next
     }
 
+    message(sprintf("  Tree built for sim: %d | Num. tips: %d (0s: %d | 1s: %d)",
+		    i, length(phy$tip.state),
+                    length(phy$tip.state[phy$tip.state == 0]),
+                    length(phy$tip.state[phy$tip.state == 1])))
+
     # Perform MLE with true data
     lik_true <- make.bisse(phy, end_states)
     log_lik_true <- lik_true(parameters)
-    fit_true <- tryCatch(find.mle(lik_true, starting.point.bisse(phy), method = "subplex"),
-                         error = function(e) NULL)
+    fit_true <- tryCatch(withTimeout(find.mle(lik_true, starting.point.bisse(phy),
+                         method = "subplex"), timeout = 60, onTimeout = "error"),
+	                       error = function(e) NULL)
     if (is.null(fit_true)) {
-      message(sprintf("  Retrying simulation %d: MLE failure.", i))
+      message(sprintf("  Retrying simulation %d: MLE failure to converge", i))
+      #fit_true <- find.mle(lik_true, starting.point.bisse(phy))
       next
     }
     log_lik_true <- logLik(fit_true)
     
     # Apply random error to tip states
+    # TODO: Explore bias in flipping values with error
     repeat {
       end_states_error <- end_states
-      num_errors <- round(length(end_states_error) * error_rate)
-      error_indices <- sample(seq_along(end_states_error), num_errors)
+      # Determine number of errors to add to tree
+      num_errors <- round(length(end_states) * error_rate)
+      
+      # Ensure at least one error in end states
+      if (num_errors == 0) {
+        num_errors <- 1
+      }
+      
+      # Ensure adding errors does not fix tree, preventing infinite loop
+      if (num_errors == length(end_states[end_states == 0])) {
+        num_errors <- num_errors - 1
+      }
+      error_indices <- sample(seq_along(end_states_error[end_states_error == 0]), num_errors)
       end_states_error[error_indices] <- ifelse(end_states_error[error_indices] == 0, 1, 0)
      
       # Ensure new end_states with error added contains both character states
       if (length(unique(end_states_error)) == 2) {
+        message("    Error applied!")
         break
-      } 
+      }
     }
     
     # Perform MLE with noisy data
     lik_error <- make.bisse(phy, end_states_error)
     log_lik_error <- lik_error(parameters)
-    fit_error <- tryCatch(find.mle(lik_true, starting.point.bisse(phy), method = "subplex"),
-                          error = function(e) NULL)
+    fit_error <- tryCatch(withTimeout(find.mle(lik_error, starting.point.bisse(phy),
+	         	              method = "subplex"), timeout = 60, onTimeout = "error"),
+		                      error = function(e) NULL)
     if (is.null(fit_error)) {
-      message(sprintf("  Retrying simulation %d: MLE failure.", i))
+      message(sprintf("  Retrying simulation %d: MLE failure to converge.", i))
+      #fit_error <- find.mle(lik_error, starting.point.bisse(phy))
       next
     }
     log_like_error <- logLik(fit_error)
     
-    message(sprintf("Simulations completed: %d / %d | Num. tips: %d | 0s: %d | 1s: %d",
+    message(sprintf("Simulations completed: %d / %d | Num. tips: %d (0s: %d | 1s: %d) | Num. errors: %d\n\n",
                     i, N, length(phy$tip.state),
                     length(phy$tip.state[phy$tip.state == 0]),
-                    length(phy$tip.state[phy$tip.state == 1])))
+                    length(phy$tip.state[phy$tip.state == 1]),
+                    num_errors))
     
     h <- history.from.sim.discrete(phy, 0:1)
     plot(h, phy)
@@ -197,6 +225,17 @@ bias_estimates <- df_grouped %>% summarise(bias_lambda0_est = mean(`lambda0 (est
                                            bias_q01_err = mean(`q01 (est, error)` - `q01 (true)`),
                                            bias_q10_err = mean(`q10 (est, error)` - `q10 (true)`))
 
+# Observe correlation between noise and metrics (variance, biases, estimates)
+
+# Save result dataframes to CSV files
+all_results_file <- paste(error_rate_str, "all_results.csv", sep = "_")
+write.csv(all_results_df, all_results_file)
+
+mean_estimates_file <- paste(error_rate_str, "mean_estimates.csv", sep = "_")
+write.csv(mean_estimates, mean_estimates_file)
+
+bias_estimates_file <- paste(error_rate_str, "bias_estimates.csv", sep = "_")
+write.csv(bias_estimates, bias_estimates_file)
 
 
 # Calculate bias as the difference between true and estimated parameters
