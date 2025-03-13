@@ -52,41 +52,44 @@ simulate_bisse <- function(parameters, error_rate, i) {
     end_states <- phy$tip.state
         
     # Check for single-tip tree
-    if (length(end_states) < 10) {
-      message(sprintf("  Retrying simulation %d: tree has fewer than 2 tips.", i))
+    if (length(end_states) < 2) {
+      cat(sprintf("  Retrying simulation %d: tree has fewer than 2 tips.\n", i))
       next
     }
     
     # Check for NA values or invalid states
     if (any(is.na(end_states)) || !all(end_states %in% c(0, 1))) {
-      message(sprintf("  Retrying simulation %d: Unexpected end states detected.", i))
+      cat(sprintf("  Retrying simulation %d: Unexpected end states detected.\n", i))
       next
     }
     
     # Ensure both character states are in final tree
     if (length(unique(end_states)) < 2) {
-      message(sprintf("  Retrying simulation %d: Only one state survived. Estimation impossible.", i))
+      cat(sprintf("  Retrying simulation %d: Only one state survived. Estimation impossible.\n", i))
       next
     }
 
-    message(sprintf("  Tree built for sim: %d | Num. tips: %d (0s: %d | 1s: %d)",
+    cat(sprintf("  Tree built for sim: %d | Num. tips: %d (0s: %d | 1s: %d)\n",
 		    i, length(phy$tip.state),
                     length(phy$tip.state[phy$tip.state == 0]),
                     length(phy$tip.state[phy$tip.state == 1])))
 
     # Perform MLE with true data
+    cat("  Starting MLE ... ")
     lik_true <- make.bisse(phy, end_states)
     log_lik_true <- lik_true(parameters)
     fit_true <- tryCatch(withTimeout(find.mle(lik_true, starting.point.bisse(phy),
-                         method = "subplex"), timeout = 60, onTimeout = "error"),
-	                       error = function(e) NULL)
+                                              method = "subplex"),
+                                     timeout = 60, onTimeout = "error"),
+	                 error = function(e) NULL)
     if (is.null(fit_true)) {
-      message(sprintf("  Retrying simulation %d: MLE failure to converge", i))
+      cat(sprintf("  Retrying simulation %d: MLE failure to converge\n", i))
       #fit_true <- find.mle(lik_true, starting.point.bisse(phy))
       next
     }
     log_lik_true <- logLik(fit_true)
-    
+    cat("done.\n")
+
     # Apply random error to tip states
     # TODO: Explore bias in flipping values with error
     repeat {
@@ -100,33 +103,35 @@ simulate_bisse <- function(parameters, error_rate, i) {
       }
       
       # Ensure adding errors does not fix tree, preventing infinite loop
-      if (num_errors == length(end_states[end_states == 0])) {
+      if (num_errors >= length(end_states[end_states == 0]) && num_errors >= length(end_states[end_states == 1])) {
         num_errors <- num_errors - 1
       }
-      error_indices <- sample(seq_along(end_states_error[end_states_error == 0]), num_errors)
+      error_indices <- sample(seq_along(end_states_error), num_errors)
       end_states_error[error_indices] <- ifelse(end_states_error[error_indices] == 0, 1, 0)
      
       # Ensure new end_states with error added contains both character states
       if (length(unique(end_states_error)) == 2) {
-        message("    Error applied!")
+        cat(sprintf("    Added %d errors.\n", num_errors))
         break
       }
     }
     
     # Perform MLE with noisy data
+    cat("  Starting MLE ... ")
     lik_error <- make.bisse(phy, end_states_error)
     log_lik_error <- lik_error(parameters)
     fit_error <- tryCatch(withTimeout(find.mle(lik_error, starting.point.bisse(phy),
 	         	              method = "subplex"), timeout = 60, onTimeout = "error"),
 		                      error = function(e) NULL)
     if (is.null(fit_error)) {
-      message(sprintf("  Retrying simulation %d: MLE failure to converge.", i))
+      cat(sprintf("  Retrying simulation %d: MLE failure to converge.\n", i))
       #fit_error <- find.mle(lik_error, starting.point.bisse(phy))
       next
     }
     log_like_error <- logLik(fit_error)
+    cat("done.\n")
     
-    message(sprintf("Simulations completed: %d / %d | Num. tips: %d (0s: %d | 1s: %d) | Num. errors: %d\n\n",
+    cat(sprintf("Simulations completed: %d / %d | Num. tips: %d (0s: %d | 1s: %d) | Num. errors: %d\n",
                     i, N, length(phy$tip.state),
                     length(phy$tip.state[phy$tip.state == 0]),
                     length(phy$tip.state[phy$tip.state == 1]),
@@ -156,6 +161,16 @@ simulate_bisse <- function(parameters, error_rate, i) {
 all_results <- pmap(param_set, function(lambda0, lambda1, mu0, mu1, q01, q10) {
     # Prepare BiSSE simulation parameters
     parameters <- c(lambda0, lambda1, mu0, mu1, q01, q10)
+
+    cat("=====================================================\n")
+    cat("=====================================================\n")
+    cat("  NOW USING PARAMETER SET:\n")
+    cat(sprintf("    λ0: %f\n", lambda0))
+    cat(sprintf("    λ1: %f\n", lambda1))
+    cat(sprintf("    μ0: %f\n", mu0))
+    cat(sprintf("    μ1: %f\n", mu1))
+    cat(sprintf("   q01: %f\n", q01))
+    cat(sprintf("   q10: %f\n\n\n", q10))
     
     # Run N simulations for current parameter set, get results
     results <- map(1:N, ~ simulate_bisse(parameters, error_rate, .))
