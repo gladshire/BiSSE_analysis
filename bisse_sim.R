@@ -80,11 +80,13 @@ simulate_bisse <- function(parameters, error_rate, i) {
     log_lik_true <- lik_true(parameters)
     fit_true <- tryCatch(withTimeout(find.mle(lik_true, starting.point.bisse(phy),
                                               method = "subplex"),
-                                     timeout = 60, onTimeout = "error"),
+                                     timeout = 6000, onTimeout = "error"),
 	                 error = function(e) NULL)
     if (is.null(fit_true)) {
       cat(sprintf("  Retrying simulation %d: MLE failure to converge\n", i))
-      #fit_true <- find.mle(lik_true, starting.point.bisse(phy))
+      #fit_true <- tryCatch(withTimeout(find.mle(lik_true, starting.point.bisse(phy)),
+      #			                timeout = 60, onTimeout = "error"),
+      #                     error = function(e) NULL)
       next
     }
     log_lik_true <- logLik(fit_true)
@@ -115,17 +117,23 @@ simulate_bisse <- function(parameters, error_rate, i) {
         break
       }
     }
+
+    # Make tree with noise for faster MLE convergence
+    phy_error <- phy
+    phy_error$tip.state <- end_states_error
     
     # Perform MLE with noisy data
     cat("  Starting MLE ... ")
     lik_error <- make.bisse(phy, end_states_error)
     log_lik_error <- lik_error(parameters)
-    fit_error <- tryCatch(withTimeout(find.mle(lik_error, starting.point.bisse(phy),
-	         	              method = "subplex"), timeout = 60, onTimeout = "error"),
+    fit_error <- tryCatch(withTimeout(find.mle(lik_error, starting.point.bisse(phy_error),
+	         	              method = "subplex"), timeout = 6000, onTimeout = "error"),
 		                      error = function(e) NULL)
     if (is.null(fit_error)) {
       cat(sprintf("  Retrying simulation %d: MLE failure to converge.\n", i))
-      #fit_error <- find.mle(lik_error, starting.point.bisse(phy))
+      #fit_error <- tryCatch(withTimeout(find.mle(lik_error, starting.point.bisse(phy)),
+      #                                  timeout = 60, on Timeout = "error"),
+      #                      error = function(e) NULL)
       next
     }
     log_like_error <- logLik(fit_error)
